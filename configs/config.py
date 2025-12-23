@@ -11,15 +11,24 @@ CAD_COLOR_MAP = {
     "白色": 7
 }
 
+# --- 试件类型配置 ---
+class SpecimenType:
+    RECTANGLE = "rectangle"
+    CIRCLE = "circle"
+
 # --- 默认参数 ---
-DEFAULT_REGION = (0, 0, 100, 100)  # (min_x, min_y, max_x, max_y)
-DEFAULT_MIN_DISTANCE = 2.0
+DEFAULT_SPECIMEN_TYPE = SpecimenType.RECTANGLE  # 默认试件类型
+DEFAULT_REGION = (0, 0, 100, 100)  # 长方形: (min_x, min_y, max_x, max_y)
+DEFAULT_CIRCLE_DIAMETER = 100.0  # 圆形直径
+DEFAULT_MIN_DISTANCE = 0.0  # 默认允许直接接触
 DEFAULT_TARGET_POROSITY = 25.0
 DEFAULT_MAX_ATTEMPTS = 100
 DEFAULT_MAX_AGGREGATES = 500
+DEFAULT_ITERATION_LIMIT = 1000  # 迭代指数限制，防止死循环
 DEFAULT_BOUNDARY_COLOR = "红色"
 DEFAULT_BOUNDARY_OPTIMIZE = True
 DEFAULT_BOUNDARY_STRENGTH = 1.0
+DEFAULT_ALLOW_TOUCHING = True  # 默认允许颗粒直接接触
 
 # --- 形状默认参数 ---
 DEFAULT_SHAPE_POLYGON = {
@@ -30,7 +39,9 @@ DEFAULT_SHAPE_POLYGON = {
     'max_sides': 7,
     'irregularity': 0.3,
     'spikiness': 0.2,
-    'weight': 1
+    'weight': 1,
+    'optimize_sides': True,  # 是否优化小边
+    'min_edge_length': None  # 最小边长度，默认自动计算
 }
 
 DEFAULT_SHAPE_CIRCLE = {

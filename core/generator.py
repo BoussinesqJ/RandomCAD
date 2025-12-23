@@ -16,7 +16,7 @@ from core.group_manager import GroupManager
 from core.quadtree import Quadtree
 from core.kd_tree import KDTree
 from utils import calculate_polygon_area, calculate_circle_area, calculate_ellipse_area, calculate_bounding_circle, is_near_boundary, move_toward_boundary, adjust_points_to_boundary
-from configs.config import CAD_COLOR_MAP
+from configs.config import CAD_COLOR_MAP, SpecimenType, DEFAULT_SPECIMEN_TYPE, DEFAULT_CIRCLE_DIAMETER, DEFAULT_ITERATION_LIMIT
 
 class RandomAggregateGenerator:
     def __init__(self, auto_start: bool = True):
@@ -30,6 +30,7 @@ class RandomAggregateGenerator:
         self.itz_layers: List[Any] = [] # 存储ITZ的Shapely对象
         self.start_time: float = 0.0
         self.end_time: float = 0.0
+        self.allow_touching: bool = True  # 允许颗粒直接接触
         self.original_regenmode: int = 1
         self.total_area: float = 0.0
         self.region_area: float = 0.0
@@ -40,6 +41,16 @@ class RandomAggregateGenerator:
         self.generation_canceled: bool = False
         self.last_progress_time: float = 0.0
         self.draw_objects: List[Any] = []  # 存储所有绘制的对象
+        
+        # 试件类型相关
+        self.specimen_type: str = DEFAULT_SPECIMEN_TYPE
+        self.rectangle_region: Tuple[float, float, float, float] = (0, 0, 100, 100)
+        self.circle_diameter: float = DEFAULT_CIRCLE_DIAMETER
+        self.circle_center: Tuple[float, float] = (50, 50)
+        
+        # 迭代指数限制
+        self.iteration_limit: int = DEFAULT_ITERATION_LIMIT
+        self.current_iteration: int = 0
         
         # 空间划分算法相关
         self.space_partitioning: str = "quadtree"  # 可选值: quadtree, kdtree
@@ -107,6 +118,65 @@ class RandomAggregateGenerator:
             logging.info("将使用GPU加速碰撞检测")
         else:
             logging.info("将使用CPU进行计算")
+    
+    def set_specimen_type(self, specimen_type: str, params: Dict[str, Any]) -> None:
+        """
+        设置试件类型
+        
+        Args:
+            specimen_type: 试件类型，可选值: rectangle, circle
+            params: 试件参数
+                - rectangle: {"region": (min_x, min_y, max_x, max_y)}
+                - circle: {"center": (x, y), "diameter": float}
+        """
+        self.specimen_type = specimen_type
+        
+        if specimen_type == SpecimenType.RECTANGLE:
+            self.rectangle_region = params.get("region", DEFAULT_REGION)
+            # 更新边界范围
+            self.boundary_min = (self.rectangle_region[0], self.rectangle_region[1])
+            self.boundary_max = (self.rectangle_region[2], self.rectangle_region[3])
+            # 计算区域面积
+            width = self.rectangle_region[2] - self.rectangle_region[0]
+            height = self.rectangle_region[3] - self.rectangle_region[1]
+            self.region_area = width * height
+        
+        elif specimen_type == SpecimenType.CIRCLE:
+            self.circle_center = params.get("center", (50, 50))
+            self.circle_diameter = params.get("diameter", DEFAULT_CIRCLE_DIAMETER)
+            # 更新边界范围
+            radius = self.circle_diameter / 2
+            self.boundary_min = (self.circle_center[0] - radius, self.circle_center[1] - radius)
+            self.boundary_max = (self.circle_center[0] + radius, self.circle_center[1] + radius)
+            # 计算区域面积
+            radius = self.circle_diameter / 2
+            self.region_area = math.pi * radius * radius
+        
+        logging.info(f"已设置试件类型: {specimen_type}，区域面积: {self.region_area:.2f}")
+    
+    def check_point_in_specimen(self, point: Tuple[float, float]) -> bool:
+        """
+        检查点是否在试件范围内
+        
+        Args:
+            point: 要检查的点 (x, y)
+            
+        Returns:
+            bool: 点在试件范围内返回True，否则返回False
+        """
+        x, y = point
+        
+        if self.specimen_type == SpecimenType.RECTANGLE:
+            min_x, min_y, max_x, max_y = self.rectangle_region
+            return min_x <= x <= max_x and min_y <= y <= max_y
+        
+        elif self.specimen_type == SpecimenType.CIRCLE:
+            center_x, center_y = self.circle_center
+            radius = self.circle_diameter / 2
+            distance = math.sqrt((x - center_x)**2 + (y - center_y)**2)
+            return distance <= radius
+        
+        return False
     
     def _initialize_acad(self, auto_start: bool, is_main_thread: bool) -> None:
         """
@@ -196,7 +266,8 @@ class RandomAggregateGenerator:
                                       max_attempts: int = 100,
                                       boundary_adjust: bool = True,
                                       progress_queue: Optional[Any] = None,
-                                      draw_queue: Optional[Any] = None) -> int:
+                                      draw_queue: Optional[Any] = None,
+                                      allow_touching: bool = True) -> int:
         """
         重构的核心生成方法，支持多组粒径和ITZ。
         
@@ -272,20 +343,29 @@ class RandomAggregateGenerator:
             # --- 初始化组目标 ---
             self._initialize_group_targets()
             
-            # --- 孔隙度模式的特定变量 ---
+            # 孔隙度模式的特定变量
             target_total_area = 0.0
             if self.generation_mode == "porosity":
                 target_total_area = self.region_area * (1 - self.target_porosity)
                 logging.info(f"孔隙度模式: 目标总骨料面积 {target_total_area:.2f}")
             
-            # 根据系统资源和骨料尺寸动态调整并行度
+            # 允许颗粒直接接触的标志
+            self.allow_touching = allow_touching
+            
+            # 根据系统资源和骨料尺寸动态调整初始并行度
             # 平均尺寸越小，需要生成的骨料越多，并行度可以适当提高
             base_parallelism = self.max_workers
             dynamic_parallelism = max(2, min(8, int(base_parallelism * (1 + (5.0 / avg_particle_size)))))
             
             # 创建线程池用于并行生成
             self.executor = ThreadPoolExecutor(max_workers=dynamic_parallelism)
-            logging.info(f"创建线程池，动态并行度: {dynamic_parallelism}")
+            logging.info(f"创建线程池，初始并行度: {dynamic_parallelism}")
+            
+            # 初始化自适应并行度相关参数
+            self.last_parallelism_adjustment = time.time()
+            self.parallelism_adjustment_interval = 5.0  # 每5秒调整一次并行度
+            self.successful_generations_in_interval = 0
+            self.attempts_in_interval = 0
             
             # 开始生成循环
             while True:
@@ -354,7 +434,8 @@ class RandomAggregateGenerator:
                             
                             collision = check_collision_hierarchical(
                                 result['shapely_obj'], result['shapely_itz'], 
-                                all_existing_objects, min_distance, self.spatial_index, self.use_gpu
+                                all_existing_objects, min_distance, self.spatial_index, self.use_gpu,
+                                self.allow_touching
                             )
                             
                             if not collision:
@@ -371,6 +452,8 @@ class RandomAggregateGenerator:
                 if agg_data:
                     generated_count += 1
                     total_attempts = 0 # 成功生成后重置尝试次数
+                    self.successful_generations_in_interval += 1
+                    self.attempts_in_interval += 1
                     
                     # 添加到空间索引和集合
                     self._add_aggregate_to_spatial_index_and_collections(agg_data)
@@ -385,13 +468,33 @@ class RandomAggregateGenerator:
                         self.last_progress_time = time.time()
                 else:
                     total_attempts += 1
-                    # 尝试次数过多时，适当增加并行度以提高找到有效骨料的概率
-                    if total_attempts % 50 == 0:
-                        dynamic_parallelism = min(12, dynamic_parallelism + 1)
-                        logging.info(f"调整并行度: {dynamic_parallelism}")
-                        # 重新创建线程池
-                        self.executor.shutdown(wait=True)
-                        self.executor = ThreadPoolExecutor(max_workers=dynamic_parallelism)
+                    self.attempts_in_interval += 1
+                
+                # 自适应并行度调整
+                current_time = time.time()
+                if current_time - self.last_parallelism_adjustment > self.parallelism_adjustment_interval:
+                    if self.attempts_in_interval > 0:
+                        success_rate = self.successful_generations_in_interval / self.attempts_in_interval
+                        
+                        # 根据成功率调整并行度
+                        if success_rate > 0.7:  # 成功率高，增加并行度
+                            new_parallelism = min(12, dynamic_parallelism + 1)
+                        elif success_rate < 0.3:  # 成功率低，减少并行度
+                            new_parallelism = max(2, dynamic_parallelism - 1)
+                        else:
+                            new_parallelism = dynamic_parallelism
+                        
+                        if new_parallelism != dynamic_parallelism:
+                            dynamic_parallelism = new_parallelism
+                            logging.info(f"自适应调整并行度: {dynamic_parallelism}, 成功率: {success_rate:.2f}")
+                            # 重新创建线程池
+                            self.executor.shutdown(wait=True)
+                            self.executor = ThreadPoolExecutor(max_workers=dynamic_parallelism)
+                    
+                    # 重置计数
+                    self.successful_generations_in_interval = 0
+                    self.attempts_in_interval = 0
+                    self.last_parallelism_adjustment = current_time
             
             # 关闭线程池
             if self.executor:
@@ -492,20 +595,68 @@ class RandomAggregateGenerator:
         Returns:
             bool: 是否满足退出条件
         """
-        # 检查所有组是否都满足面积要求
-        all_groups_satisfied = all(g['generated_area'] >= g['target_area'] for g in self.groups.get_config())
-        if all_groups_satisfied and self.generation_mode != "porosity":
-            logging.info(f"所有组的面积要求已满足")
+        # 获取所有组的配置
+        groups = self.groups.get_config()
+        
+        # 对于porosity模式，使用不同的退出条件
+        if self.generation_mode == "porosity":
+            # 计算当前孔隙度
+            current_porosity = self.calculate_porosity()
+            target_porosity_percent = self.target_porosity * 100
+            
+            # 添加详细日志
+            logging.debug(f"孔隙度调试: 目标={target_porosity_percent:.2f}%, 当前={current_porosity:.2f}%, 总面积={self.total_area:.2f}, 区域面积={self.region_area:.2f}")
+            
+            # 检查是否达到目标孔隙度，增加容差以确保能达到目标
+            tolerance = 1.0  # 1%容差
+            if abs(current_porosity - target_porosity_percent) <= tolerance:
+                logging.info(f"孔隙度模式: 已达到目标孔隙度 {target_porosity_percent:.2f}% (当前 {current_porosity:.2f}%)")
+                return True
+            
+            # 如果当前孔隙度已经小于目标孔隙度，说明已经生成了足够的骨料
+            # 这可能是因为骨料重叠或计算误差导致的
+            if current_porosity < target_porosity_percent - tolerance:
+                logging.info(f"孔隙度模式: 当前孔隙度 {current_porosity:.2f}% 已小于目标孔隙度 {target_porosity_percent:.2f}%，生成过程结束")
+                return True
+            
+            # 检查是否所有组都无法再生成更多骨料（达到最大数量限制）
+            has_remaining_groups = False
+            for group in groups:
+                if group['count'] < group['max_count']:
+                    has_remaining_groups = True
+                    break
+            
+            if not has_remaining_groups:
+                logging.info(f"孔隙度模式: 所有组都已达到最大数量限制，生成过程结束")
+                return True
+        else:  # count模式
+            # 检查是否所有组都已经生成了足够数量的骨料
+            has_remaining_groups = False
+            for group in groups:
+                if group['count'] < group['max_count']:
+                    has_remaining_groups = True
+                    break
+            
+            if not has_remaining_groups:
+                # 所有组都已经生成了最大数量的骨料
+                logging.info(f"所有组都已达到最大数量限制，生成过程结束")
+                return True
+        
+        # 4. 检查尝试次数是否超过全局限制
+        # 计算全局最大尝试次数
+        total_max_count = sum(g['max_count'] for g in groups)
+        global_max_attempts = max_attempts * total_max_count
+        
+        if len(self.generated_aggregates) > global_max_attempts:
+            # 全局尝试次数已超过限制
+            logging.info(f"已达到全局最大尝试次数 {global_max_attempts}，生成过程结束")
             return True
-
-        # 检查孔隙度模式是否达到目标
-        if self.generation_mode == "porosity" and self.total_area >= target_total_area:
-            logging.info(f"孔隙度模式: 已达到目标总面积 {target_total_area:.2f} (当前 {self.total_area:.2f})")
-            return True
-
-        # 检查尝试次数是否超过限制
-        max_total_attempts = max_attempts * sum(g['max_count'] for g in self.groups.get_config())
-        return len(self.generated_aggregates) >= max_total_attempts
+        
+        # 5. 检查是否长时间没有生成新骨料
+        # 这里可以添加一个计时器，检查最后一次成功生成骨料的时间
+        # 但当前代码没有这个计时器，所以暂时跳过
+        
+        return False
 
     def _generate_single_aggregate(self, 
                                  chosen_group: Dict[str, Any],
@@ -527,7 +678,8 @@ class RandomAggregateGenerator:
             Tuple[bool, Optional[Dict[str, Any]]]: (是否成功, 骨料数据)
         """
         # --- 生成随机中心点 ---
-        buffer = max_possible_radius * 1.5
+        # 减小缓冲区，让骨料能更靠近边界
+        buffer = max_possible_radius * 0.5
         x = random.uniform(min_x + buffer, max_x - buffer)
         y = random.uniform(min_y + buffer, max_y - buffer)
         center = (x, y) # 使用元组 (x, y) 作为中心点
@@ -560,22 +712,58 @@ class RandomAggregateGenerator:
             all_existing_objects.extend(g['shapes_and_itz'])
         
         # 使用层次化碰撞检测，并传入空间索引对象和GPU加速标志
-        collision = check_collision_hierarchical(shapely_poly, shapely_itz, all_existing_objects, min_distance, self.spatial_index, self.use_gpu)
+        collision = check_collision_hierarchical(shapely_poly, shapely_itz, all_existing_objects, min_distance, self.spatial_index, self.use_gpu, self.allow_touching)
         if collision:
             return False, None
 
         # --- 边界处理 ---
-        if boundary_adjust and is_near_boundary(center, actual_radius, (min_x, min_y), (max_x, max_y), min_distance):
-            center = move_toward_boundary(center, (min_x, min_y), (max_x, max_y), min_distance)
-            # 更新所有点
-            for i in range(len(points)):
-                px, py = points[i]
-                points[i] = (center[0] + (px - x), center[1] + (py - y))
+        if boundary_adjust:
+            # 考虑ITZ厚度，使用骨料核心半径加上ITZ厚度作为边界检测半径
+            boundary_check_radius = actual_radius + itz_thickness
+            if is_near_boundary(center, boundary_check_radius, (min_x, min_y), (max_x, max_y), min_distance):
+                # 计算ITZ层与边界的最小安全距离
+                itz_safe_distance = 0.1  # ITZ层与边界的最小距离
+                
+                # 移动中心点到边界附近，考虑ITZ厚度
+                center = move_toward_boundary(center, (min_x, min_y), (max_x, max_y), itz_safe_distance)
+                # 更新所有点
+                for i in range(len(points)):
+                    px, py = points[i]
+                    points[i] = (center[0] + (px - x), center[1] + (py - y))
+                
+                # 调整点到边界，确保ITZ层与边界保持安全距离
+                points = adjust_points_to_boundary([APoint(p[0], p[1], 0) for p in points], itz_safe_distance, (min_x, min_y), (max_x, max_y))
+                # 重新计算中心点和半径（调整后可能变化）
+                _, actual_radius = calculate_bounding_circle(points)
+                
+                # 重新生成坐标列表，用于更新Shapely对象
+                coords = []
+                for p in points:
+                    if hasattr(p, 'x') and hasattr(p, 'y'):
+                        coords.append((p.x, p.y))
+                    else:
+                        coords.append(p)
+                
+                # 重新创建Shapely对象
+                shapely_poly = self._create_shapely_polygon(coords)
+                if not shapely_poly:
+                    return False, None
+                
+                # 重新生成ITZ，确保与调整后的形状匹配
+                shapely_itz = shapely_poly.buffer(itz_thickness) if itz_thickness > 0 else None
+                
+                # 重新计算面积，确保与调整后的形状匹配
+                if hasattr(shapely_poly, 'area'):
+                    area = shapely_poly.area
             
-            # 调整点到边界
-            points = adjust_points_to_boundary([APoint(p[0], p[1], 0) for p in points], min_distance, (min_x, min_y), (max_x, max_y))
-            # 重新计算中心点和半径（调整后可能变化）
-            _, actual_radius = calculate_bounding_circle(points)
+            # 边界调整后再次检查碰撞，确保调整后的形状不会与现有形状重叠
+            all_existing_objects = []
+            for g in self.groups.get_config():
+                all_existing_objects.extend(g['shapes_and_itz'])
+            
+            collision = check_collision_hierarchical(shapely_poly, shapely_itz, all_existing_objects, min_distance, self.spatial_index, self.use_gpu, self.allow_touching)
+            if collision:
+                return False, None
 
         # --- 构建骨料数据 ---
         agg_data = {
@@ -612,10 +800,12 @@ class RandomAggregateGenerator:
                 max_sides = shape_config.get('max_sides', 7)
                 irregularity = shape_config.get('irregularity', 0.3)
                 spikiness = shape_config.get('spikiness', 0.2)
+                optimize_sides = shape_config.get('optimize_sides', True)
+                min_edge_length = shape_config.get('min_edge_length', None)
                 
                 size = random.uniform(min_size, max_size)
                 sides = random.randint(min_sides, max_sides)
-                points = generate_random_polygon(center, size, sides, irregularity, spikiness)
+                points = generate_random_polygon(center, size, sides, irregularity, spikiness, optimize_sides, min_edge_length)
                 _, actual_radius = calculate_bounding_circle([APoint(p[0], p[1], 0) for p in points])
                 area = calculate_polygon_area([APoint(p[0], p[1], 0) for p in points])
                 shape_info = {"shape": "polygon", "size": size, "sides": sides, "irregularity": irregularity, "spikiness": spikiness}
@@ -716,6 +906,26 @@ class RandomAggregateGenerator:
         color = CAD_COLOR_MAP.get(chosen_group.get('layer_color', "红色"), 1)
         draw_queue.put(('aggregate', point_array, color))
         logging.debug(f"骨料点数据放入队列: {point_array[:6]}...")
+        
+        # 绘制界面层（ITZ）
+        itz_thickness = agg_data.get('itz_thickness', 0.0)
+        if itz_thickness > 0 and 'shapely_itz' in agg_data and agg_data['shapely_itz']:
+            try:
+                # 从Shapely对象中提取ITZ的点
+                itz_polygon = agg_data['shapely_itz']
+                if hasattr(itz_polygon, 'exterior'):
+                    itz_points = list(itz_polygon.exterior.coords)
+                    # 将ITZ点转换为AutoCAD格式
+                    itz_point_array = []
+                    for p in itz_points:
+                        itz_point_array.extend([p[0], p[1], 0.0])
+                    
+                    # 使用不同的颜色绘制界面层（比骨料颜色深一级）
+                    itz_color = (color % 7) + 1  # 循环使用不同颜色
+                    draw_queue.put(('aggregate', itz_point_array, itz_color))
+                    logging.debug(f"ITZ点数据放入队列: {itz_point_array[:6]}...")
+            except Exception as e:
+                logging.warning(f"绘制ITZ失败: {str(e)}")
 
     def calculate_porosity(self) -> float:
         """
@@ -724,8 +934,11 @@ class RandomAggregateGenerator:
         Returns:
             float: 孔隙度百分比 (0-100)
         """
-        if self.region_area <= 0 or self.total_area <= 0:
+        if self.region_area <= 0:
             return 0.0
+        if self.total_area <= 0:
+            # 没有骨料时，孔隙度为100%
+            return 100.0
         porosity = 1 - (self.total_area / self.region_area)
         return max(0.0, min(1.0, porosity)) * 100
 

@@ -659,13 +659,27 @@ class AggregateGeneratorGUI:
                 if msg_type == "progress":
                     count, total_area, porosity = data
                     mode = self.mode_var.get()
+                    
+                    # 计算进度百分比
+                    progress_percent = 0
                     if mode == "count":
-                        # 这里可以显示总生成数或各组进度，简化为总进度
-                        self.progress_label.config(text=f"已生成 {count} 个骨料")
+                        # 按数量生成模式：根据各组目标数量总和计算进度
+                        total_target_count = sum(group.get('max_count', 500) for group in self.groups_data)
+                        if total_target_count > 0:
+                            progress_percent = min(100, int(count / total_target_count * 100))
+                        self.progress_label.config(text=f"已生成 {count} 个骨料，进度: {progress_percent}%")
                     else:
-                        self.progress_label.config(text=f"已生成 {count} 个骨料, 当前孔隙度: {porosity:.2f}%")
-                    # 进度条可以基于总尝试次数或预估完成度，这里简化
-                    self.progress_var.set(0) # 或者根据逻辑计算
+                        # 按孔隙度生成模式：根据目标孔隙度计算进度
+                        target_porosity = self.target_porosity_var.get()
+                        current_porosity_ratio = porosity / 100
+                        target_porosity_ratio = target_porosity / 100
+                        if target_porosity_ratio > 0:
+                            progress_percent = min(100, int((target_porosity_ratio - current_porosity_ratio) / target_porosity_ratio * 100))
+                        self.progress_label.config(text=f"已生成 {count} 个骨料, 当前孔隙度: {porosity:.2f}%, 进度: {progress_percent}%")
+                    
+                    # 更新进度条
+                    self.progress_var.set(progress_percent)
+                    
                     if self.generator.region_area > 0:
                         self.porosity_var_text.set(f"孔隙度: {porosity:.2f}%")
                         aggregate_ratio = (total_area / self.generator.region_area) * 100

@@ -139,8 +139,10 @@ def check_collision_shapely(new_shape: Any,
     if quadtree is not None:
         # 构建临时对象用于空间索引查询
         temp_obj = {'shapely_obj': new_shape}
+        # 使用ITZ的边界进行查询（如果存在），否则使用骨料核心的边界
+        query_obj = new_itz_shape if new_itz_shape else new_shape
         # 查询可能碰撞的对象
-        potential_collisions = quadtree.query_shapely(new_shape, min_distance)
+        potential_collisions = quadtree.query_shapely(query_obj, min_distance)
         # 从查询结果中提取Shapely对象
         potential_shapes = []
         for obj in potential_collisions:
@@ -165,10 +167,12 @@ def check_collision_shapely(new_shape: Any,
             if collision:
                 existing_shape = objects_to_check[i]
                 try:
-                    # 精确检测：使用Shapely的distance方法
-                    if new_shape.distance(existing_shape) < min_distance:
+                    # 关键逻辑：骨料核心之间不能重叠，ITZ可以接触但不重叠
+                    # 1. 检查新骨料核心与现有形状的碰撞
+                    if new_shape.intersects(existing_shape):
                         return True
-                    if new_itz_shape and new_itz_shape.distance(existing_shape) < min_distance:
+                    # 2. 检查新骨料ITZ与现有形状的碰撞
+                    if new_itz_shape and new_itz_shape.intersects(existing_shape):
                         return True
                 except Exception as e:
                     logging.warning(f"碰撞检测时出错: {str(e)}")
@@ -184,13 +188,13 @@ def check_collision_shapely(new_shape: Any,
                 expanded_bbox[1] > existing_bbox[3]):   # 新对象在已有对象上方
                 continue  # 边界框不重叠，跳过
             
-            # 精确检测：使用Shapely的distance方法
+            # 精确检测：使用Shapely的intersects方法检查重叠
             try:
-                # 检查新骨料与已存在对象的距离
-                if new_shape.distance(existing_shape) < min_distance:
+                # 1. 检查新骨料核心与现有形状的碰撞
+                if new_shape.intersects(existing_shape):
                     return True
-                # 检查新骨料的ITZ与已存在对象的距离
-                if new_itz_shape and new_itz_shape.distance(existing_shape) < min_distance:
+                # 2. 检查新骨料ITZ与现有形状的碰撞
+                if new_itz_shape and new_itz_shape.intersects(existing_shape):
                     return True
             except Exception as e:
                 logging.warning(f"碰撞检测时出错: {str(e)}")
@@ -204,7 +208,8 @@ def check_collision_hierarchical(new_shape: Any,
                                  existing_shapes_and_itzs: List[Any], 
                                  min_distance: float, 
                                  quadtree: Optional[Any] = None, 
-                                 use_gpu: bool = False) -> bool:
+                                 use_gpu: bool = False, 
+                                 allow_touching: bool = True) -> bool:
     """
     层次化碰撞检测：先边界框快速排除，再精确碰撞检测。
     
@@ -215,14 +220,17 @@ def check_collision_hierarchical(new_shape: Any,
         min_distance: 最小间距
         quadtree: 可选的空间索引对象，用于优化碰撞检测
         use_gpu: 是否使用GPU加速碰撞检测
+        allow_touching: 是否允许颗粒直接接触，True表示允许接触，False表示必须保持最小距离
         
     Returns:
         bool: 如果发生碰撞返回True，否则返回False
     """
     # 第一步：使用空间索引（如果可用）缩小检查范围
     if quadtree is not None:
+        # 使用ITZ的边界进行查询（如果存在），否则使用骨料核心的边界
+        query_obj = new_itz_shape if new_itz_shape else new_shape
         temp_obj = {'shapely_obj': new_shape}
-        potential_collisions = quadtree.query_shapely(new_shape, min_distance)
+        potential_collisions = quadtree.query_shapely(query_obj, min_distance)
         
         # 从查询结果中提取Shapely对象
         potential_shapes = []
@@ -236,21 +244,24 @@ def check_collision_hierarchical(new_shape: Any,
             existing_shapes_and_itzs = potential_shapes
     
     # 第二步：边界框快速检测
-    new_bbox = new_shape.bounds
-    expanded_bbox = (
-        new_bbox[0] - min_distance,
-        new_bbox[1] - min_distance,
-        new_bbox[2] + min_distance,
-        new_bbox[3] + min_distance
-    )
-    
+    # 使用ITZ的边界进行边界框检测（如果存在），否则使用骨料核心的边界
     if new_itz_shape:
-        itz_bbox = new_itz_shape.bounds
+        # 使用ITZ的边界作为主边界
+        main_bbox = new_itz_shape.bounds
         expanded_bbox = (
-            min(expanded_bbox[0], itz_bbox[0] - min_distance),
-            min(expanded_bbox[1], itz_bbox[1] - min_distance),
-            max(expanded_bbox[2], itz_bbox[2] + min_distance),
-            max(expanded_bbox[3], itz_bbox[3] + min_distance)
+            main_bbox[0] - min_distance,
+            main_bbox[1] - min_distance,
+            main_bbox[2] + min_distance,
+            main_bbox[3] + min_distance
+        )
+    else:
+        # 没有ITZ，使用骨料核心的边界
+        main_bbox = new_shape.bounds
+        expanded_bbox = (
+            main_bbox[0] - min_distance,
+            main_bbox[1] - min_distance,
+            main_bbox[2] + min_distance,
+            main_bbox[3] + min_distance
         )
     
     possible_colliders = []
@@ -279,10 +290,20 @@ def check_collision_hierarchical(new_shape: Any,
     # 第三步：精确碰撞检测
     for shape in possible_colliders:
         try:
-            if new_shape.distance(shape) < min_distance:
+            # 关键逻辑：无论allow_touching如何，骨料核心之间都不能重叠
+            # 只有ITZ之间可以接触但不重叠
+            
+            # 1. 检查新骨料核心与现有形状的碰撞
+            # 新骨料核心与任何现有形状（包括核心和ITZ）都不能重叠
+            if new_shape.intersects(shape):
                 return True
-            if new_itz_shape and new_itz_shape.distance(shape) < min_distance:
-                return True
+            
+            # 2. 检查新骨料ITZ与现有形状的碰撞
+            if new_itz_shape:
+                # ITZ与现有核心不能重叠（但可以接触）
+                # ITZ与现有ITZ可以接触但不能重叠
+                if new_itz_shape.intersects(shape):
+                    return True
         except Exception as e:
             logging.warning(f"精确碰撞检测时出错: {str(e)}")
             continue

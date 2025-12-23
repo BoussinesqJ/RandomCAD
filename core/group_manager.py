@@ -76,8 +76,16 @@ class GroupManager:
             Optional[Dict[str, Any]]: 选中的组配置，没有可生成的组时返回None
         """
         if generation_mode == "porosity":
-            # 孔隙度模式：选择面积占比未达到目标的组
-            candidate_groups = [g for g in self.groups if g['generated_area'] < g['target_area']]
+            # 孔隙度模式：优先选择生成进度低的组，确保各组按比例生成
+            # 计算每个组的生成进度
+            for g in self.groups:
+                if g['target_area'] > 0:
+                    g['progress'] = g['generated_area'] / g['target_area']
+                else:
+                    g['progress'] = 0.0
+            
+            # 按生成进度排序，优先选择进度低的组
+            candidate_groups = sorted(self.groups, key=lambda g: g['progress'])
         else:
             # 数量模式：优先选择面积占比低的组
             candidate_groups = sorted(self.groups, key=lambda g: g['generated_area'] / g['target_area'] if g['target_area'] > 0 else 0)
@@ -86,7 +94,7 @@ class GroupManager:
         available_groups = [g for g in candidate_groups if g['count'] < g['max_count']]
         
         if available_groups:
-            return random.choice(available_groups)
+            return available_groups[0]  # 返回进度最低的组，而不是随机选择
         return None
 
     def update_group_stats(self, group_id: int, area: float) -> bool:

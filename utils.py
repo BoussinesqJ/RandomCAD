@@ -124,8 +124,9 @@ def is_near_boundary(center: Tuple[float, float], radius: float,
     bottom_dist = center[1] - min_y
     top_dist = max_y - center[1]
     
-    # 检查是否在边界附近
-    threshold = radius + min_distance * 2
+    # 降低边界附近的阈值，让更多骨料能触发边界调整
+    # 只需要半径作为阈值，不需要额外的min_distance
+    threshold = radius
     return (left_dist < threshold or
             right_dist < threshold or
             bottom_dist < threshold or
@@ -136,7 +137,7 @@ def move_toward_boundary(center: Tuple[float, float],
                          boundary_min: Tuple[float, float], boundary_max: Tuple[float, float], 
                          min_distance: float) -> Tuple[float, float]:
     """
-    向最近的边界移动中心点
+    向最近的边界移动中心点，使ITZ层尽可能贴近边界
     
     Args:
         center: 当前中心点坐标 (x, y)
@@ -162,15 +163,18 @@ def move_toward_boundary(center: Tuple[float, float],
     closest_boundary = min(distances, key=distances.get)
     min_dist = distances[closest_boundary]
     
-    # 调整中心点到边界附近
+    # 调整中心点到边界附近，让ITZ层尽可能贴近边界
+    # 使用0.1作为最小距离，确保ITZ层能贴近边界但不重叠
+    adjusted_min_distance = 0.1
+    
     if closest_boundary == 'left':
-        return (min_x + min_distance, center[1])
+        return (min_x + adjusted_min_distance, center[1])
     elif closest_boundary == 'right':
-        return (max_x - min_distance, center[1])
+        return (max_x - adjusted_min_distance, center[1])
     elif closest_boundary == 'bottom':
-        return (center[0], min_y + min_distance)
+        return (center[0], min_y + adjusted_min_distance)
     elif closest_boundary == 'top':
-        return (center[0], max_y - min_distance)
+        return (center[0], max_y - adjusted_min_distance)
     
     return center
 
@@ -180,7 +184,7 @@ def adjust_points_to_boundary(points: List[Any],
                              boundary_min: Tuple[float, float], 
                              boundary_max: Tuple[float, float]) -> List[Tuple[float, float]]:
     """
-    调整点集到边界内，确保与边界保持最小距离
+    调整点集到边界内，确保ITZ层能尽可能贴近边界
     
     Args:
         points: 点列表，每个点需有x和y属性
@@ -195,13 +199,16 @@ def adjust_points_to_boundary(points: List[Any],
     max_x, max_y = boundary_max
     adjusted_points = []
     
+    # 使用更小的距离，让ITZ层能更贴近边界
+    adjusted_min_distance = 0.1
+    
     for point in points:
         x, y = point.x, point.y
         
-        # 限制x坐标在边界内
-        x = clip(x, min_x + min_distance, max_x - min_distance)
-        # 限制y坐标在边界内
-        y = clip(y, min_y + min_distance, max_y - min_distance)
+        # 限制x坐标在边界内，使用调整后的最小距离
+        x = clip(x, min_x + adjusted_min_distance, max_x - adjusted_min_distance)
+        # 限制y坐标在边界内，使用调整后的最小距离
+        y = clip(y, min_y + adjusted_min_distance, max_y - adjusted_min_distance)
         
         adjusted_points.append((x, y))
     

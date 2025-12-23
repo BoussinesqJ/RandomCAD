@@ -46,13 +46,22 @@ class KDTreeNode:
         max_y = float('-inf')
         
         for obj in self.objects:
-            shapely_obj = obj.get('shapely_obj') or obj.get('shapely_itz')
-            if shapely_obj:
-                obj_bounds = shapely_obj.bounds
-                min_x = min(min_x, obj_bounds[0])
-                min_y = min(min_y, obj_bounds[1])
-                max_x = max(max_x, obj_bounds[2])
-                max_y = max(max_y, obj_bounds[3])
+            # 先检查是否有现成的bounds属性，避免重复计算
+            if 'bounds' in obj:
+                obj_bounds = obj['bounds']
+            else:
+                shapely_obj = obj.get('shapely_obj') or obj.get('shapely_itz')
+                if shapely_obj:
+                    obj_bounds = shapely_obj.bounds
+                    # 缓存边界框，避免重复计算
+                    obj['bounds'] = obj_bounds
+                else:
+                    continue
+            
+            min_x = min(min_x, obj_bounds[0])
+            min_y = min(min_y, obj_bounds[1])
+            max_x = max(max_x, obj_bounds[2])
+            max_y = max(max_y, obj_bounds[3])
         
         self.bounds = (min_x, min_y, max_x, max_y)
     
@@ -154,17 +163,26 @@ class KDTreeNode:
         # 如果是叶子节点，检查所有对象
         if not self.left and not self.right:
             for obj in self.objects:
-                shapely_obj = obj.get('shapely_obj') or obj.get('shapely_itz')
-                if shapely_obj:
-                    obj_bounds = shapely_obj.bounds
-                    if self._intersects_bounds(obj_bounds, bounds):
-                        results.append(obj)
+                # 使用缓存的边界框，避免重复计算
+                if 'bounds' in obj:
+                    obj_bounds = obj['bounds']
+                else:
+                    shapely_obj = obj.get('shapely_obj') or obj.get('shapely_itz')
+                    if shapely_obj:
+                        obj_bounds = shapely_obj.bounds
+                        obj['bounds'] = obj_bounds
+                    else:
+                        continue
+                
+                if self._intersects_bounds(obj_bounds, bounds):
+                    results.append(obj)
             return results
         
         # 非叶子节点，递归查询左右子树
-        if self.left:
+        # 优化：先查询与当前轴相关的子树，减少递归深度
+        if self.left and (bounds[self.axis] < self.median or bounds[2 + self.axis] < self.median):
             results.extend(self.left.query_range(bounds))
-        if self.right:
+        if self.right and (bounds[self.axis] > self.median or bounds[2 + self.axis] > self.median):
             results.extend(self.right.query_range(bounds))
         
         return results
