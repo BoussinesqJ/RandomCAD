@@ -11,7 +11,7 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional, Union
 from ui.widgets import ScrollableFrame
 from core.generator import RandomAggregateGenerator
-from config import DEFAULT_REGION, DEFAULT_MIN_DISTANCE, DEFAULT_TARGET_POROSITY, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_AGGREGATES, DEFAULT_BOUNDARY_COLOR, DEFAULT_BOUNDARY_OPTIMIZE, DEFAULT_BOUNDARY_STRENGTH, DEFAULT_SHAPE_POLYGON, DEFAULT_SHAPE_CIRCLE, DEFAULT_SHAPE_ELLIPSE, DEFAULT_GROUP, CAD_COLOR_MAP
+from configs.config import DEFAULT_REGION, DEFAULT_MIN_DISTANCE, DEFAULT_TARGET_POROSITY, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_AGGREGATES, DEFAULT_BOUNDARY_COLOR, DEFAULT_BOUNDARY_OPTIMIZE, DEFAULT_BOUNDARY_STRENGTH, DEFAULT_SHAPE_POLYGON, DEFAULT_SHAPE_CIRCLE, DEFAULT_SHAPE_ELLIPSE, DEFAULT_GROUP, CAD_COLOR_MAP
 
 
 class AggregateGeneratorGUI:
@@ -35,9 +35,11 @@ class AggregateGeneratorGUI:
         # 设置应用图标
         try:
             if sys.platform == "win32":
-                self.root.iconbitmap('aggregate_icon.ico')
+                icon_path = 'aggregate_icon.ico'
+                if os.path.exists(icon_path):
+                    self.root.iconbitmap(icon_path)
         except Exception as e:
-            logging.warning(f"设置图标失败: {str(e)}")
+            logging.debug(f"设置图标失败: {str(e)}")
         
         self.generator: Optional[RandomAggregateGenerator] = None
         self.generation_thread: Optional[threading.Thread] = None

@@ -16,7 +16,7 @@ from core.group_manager import GroupManager
 from core.quadtree import Quadtree
 from core.kd_tree import KDTree
 from utils import calculate_polygon_area, calculate_circle_area, calculate_ellipse_area, calculate_bounding_circle, is_near_boundary, move_toward_boundary, adjust_points_to_boundary
-from config import CAD_COLOR_MAP
+from configs.config import CAD_COLOR_MAP
 
 class RandomAggregateGenerator:
     def __init__(self, auto_start: bool = True):

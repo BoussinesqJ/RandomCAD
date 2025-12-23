@@ -9,7 +9,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("aggregate_generator.log"),
+        logging.FileHandler("logs/aggregate_generator.log"),
         logging.StreamHandler()
     ]
 )
