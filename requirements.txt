@@ -1,13 +1,21 @@
 # 核心依赖
+PySide6>=6.6.0
 pyautocad>=0.2.0
 shapely>=2.0.0
 comtypes>=1.1.10
 numpy>=1.20.0
 
+# 中望CAD支持（可选）
+# ZWCAD>=1.0.0  # 取消注释以启用中望CAD支持
+
 # 测试依赖
 pytest>=7.0.0
 pytest-cov>=4.0.0
+pytest-qt>=4.2.0
 
 # 文档依赖
 sphinx>=5.0.0
 sphinx-rtd-theme>=1.0.0
+
+# 可选依赖（GPU加速）
+torch>=2.0.0  # Enable GPU acceleration if CUDA is available
