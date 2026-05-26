@@ -351,7 +351,26 @@ python scripts/test_cad_automated.py
 
 ## 许可证
 
-[待定]
+本项目采用 [MIT License](LICENSE) 授权许可。
+
+## 如何引用
+
+如果您在学术研究、论文撰写或工程设计中使用了本项目，请按照以下格式进行引用：
+
+### 文本引用
+> BoussinesqJ. RandomCAD: 适用于混凝土与采空区充填细观结构建模的高性能随机骨料颗粒生成器 [OL]. GitHub, 2026. https://github.com/BoussinesqJ/RandomCAD.
+
+### BibTeX 格式
+```bibtex
+@misc{randomcad2026,
+  author = {BoussinesqJ},
+  title = {RandomCAD: A High-Performance Random Aggregate Generator for Concrete and Gob Backfilling Modeling},
+  year = {2026},
+  publisher = {GitHub},
+  journal = {GitHub Repository},
+  howpublished = {\url{https://github.com/BoussinesqJ/RandomCAD}}
+}
+```
 
 ## 联系方式
 
