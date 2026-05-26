@@ -405,6 +405,6 @@ python scripts/test_cad_automated.py
 
 ---
 
-**最后更新**：2025-12-25  
+**最后更新**：2026-05-26  
 **版本**：v2.0.1  
-**维护者**：RandomCAD 开发团队
+**维护者**：BoussinesqJ
