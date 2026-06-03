@@ -308,6 +308,9 @@ class MainWindow(QMainWindow):
         
         panel.setLayout(mode_layout)
         layout.addWidget(panel)
+        
+        self.count_radio.toggled.connect(self._update_mode_visibility)
+        self.porosity_radio.toggled.connect(self._update_mode_visibility)
     
     def _create_parameters_panel(self, layout: QVBoxLayout):
         """
@@ -315,12 +318,6 @@ class MainWindow(QMainWindow):
         """
         self.params_panel = QGroupBox("骨料参数")
         form_layout = QFormLayout()
-        
-        self.count_label = QLabel("骨料数量:")
-        self.count_spin = QSpinBox()
-        self.count_spin.setRange(1, 1000)
-        self.count_spin.setValue(100)
-        form_layout.addRow(self.count_label, self.count_spin)
         
         self.porosity_label = QLabel("目标孔隙度(%):")
         self.porosity_spin = QDoubleSpinBox()
@@ -465,16 +462,13 @@ class MainWindow(QMainWindow):
         """
         更新模式可见性
         """
-        if self.count_radio.isChecked():
-            self.count_label.setVisible(True)
-            self.count_spin.setVisible(True)
-            self.porosity_label.setVisible(False)
-            self.porosity_spin.setVisible(False)
-        else:
-            self.count_label.setVisible(False)
-            self.count_spin.setVisible(False)
-            self.porosity_label.setVisible(True)
-            self.porosity_spin.setVisible(True)
+        is_count_mode = self.count_radio.isChecked()
+        mode = "count" if is_count_mode else "porosity"
+        self.porosity_label.setVisible(not is_count_mode)
+        self.porosity_spin.setVisible(not is_count_mode)
+        
+        for widget in self.group_widgets:
+            widget.set_mode(mode)
     
     @Slot()
     def _add_group(self):
@@ -488,6 +482,9 @@ class MainWindow(QMainWindow):
         
         self.group_widgets.append(group_widget)
         self.groups_container_layout.addWidget(group_widget)
+        
+        mode = "count" if self.count_radio.isChecked() else "porosity"
+        group_widget.set_mode(mode)
     
     @Slot(str)
     def _on_cad_type_changed(self, cad_type: str):

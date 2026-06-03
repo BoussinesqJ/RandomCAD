@@ -61,11 +61,12 @@ class GroupConfigWidget(QGroupBox):
         self.color_combo.currentTextChanged.connect(self._emit_changed)
         layout.addRow("图层颜色:", self.color_combo)
         
+        self._max_count_label = QLabel("最大数量:")
         self.max_count_spin = QSpinBox()
         self.max_count_spin.setRange(1, 1000)
         self.max_count_spin.setValue(DEFAULT_GROUP['max_count'])
         self.max_count_spin.valueChanged.connect(self._emit_changed)
-        layout.addRow("最大数量:", self.max_count_spin)
+        layout.addRow(self._max_count_label, self.max_count_spin)
         
         self.polygon_widget = ShapeConfigWidget("polygon")
         self.polygon_widget.set_config(DEFAULT_SHAPE_POLYGON)
@@ -91,6 +92,17 @@ class GroupConfigWidget(QGroupBox):
         """
         config = self.get_config()
         self.config_changed.emit(config)
+    
+    def set_mode(self, mode: str) -> None:
+        """
+        根据生成模式显示/隐藏最大数量字段
+        
+        Args:
+            mode: 生成模式，"count" 或 "porosity"
+        """
+        is_count = (mode == "count")
+        self._max_count_label.setVisible(is_count)
+        self.max_count_spin.setVisible(is_count)
     
     def get_config(self) -> dict:
         """
