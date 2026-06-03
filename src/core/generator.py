@@ -13,6 +13,7 @@ from .collision import check_collision_hierarchical, gpu_calculator
 from .group_manager import GroupManager
 from .quadtree import Quadtree
 from .kd_tree import KDTree
+from .spatial_index import SpatialIndex
 from .cad_connection import CADConnection, ConnectionState
 from ..utils import (
     calculate_polygon_area, calculate_circle_area, calculate_ellipse_area,
@@ -89,10 +90,11 @@ class RandomAggregateGenerator:
         self.current_iteration: int = 0
         
         self.space_partitioning: str = "quadtree"
-        self.spatial_index: Optional[Union[Quadtree, KDTree]] = None
+        self.spatial_index: Optional[SpatialIndex] = None
         
         self.executor: Optional[ThreadPoolExecutor] = None
         self.max_workers: int = 4
+        self._state_lock = threading.Lock()  # 保护共享状态的线程锁
         
         self.use_gpu: bool = False
         self.cuda_available: bool = gpu_calculator.cuda_available
@@ -355,7 +357,7 @@ class RandomAggregateGenerator:
             base_parallelism = self.max_workers
             dynamic_parallelism = max(2, min(8, int(base_parallelism * (1 + (5.0 / avg_particle_size)))))
             
-            self.executor = ThreadPoolExecutor(max_workers=dynamic_parallelism)
+            self.executor = ThreadPoolExecutor(max_workers=12)  # 固定最大值，通过任务数控制实际并行度
             logging.info(f"创建线程池，初始并行度: {dynamic_parallelism}")
             
             self.last_parallelism_adjustment = time.time()
@@ -495,8 +497,6 @@ class RandomAggregateGenerator:
                         if new_parallelism != dynamic_parallelism:
                             dynamic_parallelism = new_parallelism
                             logging.info(f"自适应调整并行度: {dynamic_parallelism}, 成功率: {success_rate:.2f}")
-                            self.executor.shutdown(wait=True)
-                            self.executor = ThreadPoolExecutor(max_workers=dynamic_parallelism)
                     
                     self.successful_generations_in_interval = 0
                     self.attempts_in_interval = 0
@@ -655,7 +655,7 @@ class RandomAggregateGenerator:
         Returns:
             Tuple[bool, Optional[Dict[str, Any]]]: (是否成功, 骨料数据)
         """
-        if not SHAPELY_AVAILABLE or not PYAUTOCAD_AVAILABLE:
+        if not SHAPELY_AVAILABLE:
             return False, None
         
         buffer = max_possible_radius * 0.5
@@ -680,11 +680,12 @@ class RandomAggregateGenerator:
         itz_thickness = chosen_group.get('itz_thickness', 0.0)
         shapely_itz = shapely_poly.buffer(itz_thickness) if itz_thickness > 0 else None
 
-        all_existing_objects = []
-        for g in self.groups.get_config():
-            all_existing_objects.extend(g['shapes_and_itz'])
-        
-        collision = check_collision_hierarchical(shapely_poly, shapely_itz, all_existing_objects, min_distance, self.spatial_index, self.use_gpu, self.allow_touching)
+        with self._state_lock:
+            all_existing_objects = []
+            for g in self.groups.get_config():
+                all_existing_objects.extend(g['shapes_and_itz'])
+            
+            collision = check_collision_hierarchical(shapely_poly, shapely_itz, all_existing_objects, min_distance, self.spatial_index, self.use_gpu, self.allow_touching)
         if collision:
             return False, None
 
@@ -698,17 +699,10 @@ class RandomAggregateGenerator:
                     px, py = points[i]
                     points[i] = (center[0] + (px - x), center[1] + (py - y))
                 
-                points = adjust_points_to_boundary([APoint(p[0], p[1], 0) for p in points], itz_safe_distance, (min_x, min_y), (max_x, max_y))
-                # adjust_points_to_boundary 返回 tuple，重新包装为 APoint
-                points = [APoint(p[0], p[1], 0) for p in points]
+                points = adjust_points_to_boundary(points, itz_safe_distance, (min_x, min_y), (max_x, max_y))
                 _, actual_radius = calculate_bounding_circle(points)
                 
-                coords = []
-                for p in points:
-                    if hasattr(p, 'x') and hasattr(p, 'y'):
-                        coords.append((p.x, p.y))
-                    else:
-                        coords.append(p)
+                coords = [(p[0], p[1]) for p in points]
                 
                 shapely_poly = self._create_shapely_polygon(coords)
                 if not shapely_poly:
@@ -767,8 +761,8 @@ class RandomAggregateGenerator:
                 size = random.uniform(min_size, max_size)
                 sides = random.randint(min_sides, max_sides)
                 points = generate_random_polygon(center, size, sides, irregularity, spikiness, optimize_sides, min_edge_length)
-                _, actual_radius = calculate_bounding_circle([APoint(p[0], p[1], 0) for p in points])
-                area = calculate_polygon_area([APoint(p[0], p[1], 0) for p in points])
+                _, actual_radius = calculate_bounding_circle(points)
+                area = calculate_polygon_area(points)
                 shape_info = {"shape": "polygon", "size": size, "sides": sides, "irregularity": irregularity, "spikiness": spikiness}
             
             elif shape_config['type'] == 'circle':
@@ -827,23 +821,24 @@ class RandomAggregateGenerator:
 
     def _add_aggregate_to_spatial_index_and_collections(self, agg_data: Dict[str, Any]) -> None:
         """
-        将骨料添加到空间索引和集合中
+        将骨料添加到空间索引和集合中（线程安全）
         """
-        self.total_area += agg_data["area"]
-        
-        for group in self.groups.get_config():
-            if group['id'] == agg_data["group_id"]:
-                group['generated_area'] += agg_data["area"]
-                group['count'] += 1
-                group['shapes_and_itz'].append(agg_data["shapely_obj"])
-                if agg_data["shapely_itz"]:
-                    group['shapes_and_itz'].append(agg_data["shapely_itz"])
-                break
-        
-        if self.spatial_index:
-            self.spatial_index.insert(agg_data)
-        
-        self.generated_aggregates.append(agg_data)
+        with self._state_lock:
+            self.total_area += agg_data["area"]
+            
+            for group in self.groups.get_config():
+                if group['id'] == agg_data["group_id"]:
+                    group['generated_area'] += agg_data["area"]
+                    group['count'] += 1
+                    group['shapes_and_itz'].append(agg_data["shapely_obj"])
+                    if agg_data["shapely_itz"]:
+                        group['shapes_and_itz'].append(agg_data["shapely_itz"])
+                    break
+            
+            if self.spatial_index:
+                self.spatial_index.insert(agg_data)
+            
+            self.generated_aggregates.append(agg_data)
 
     def _send_draw_command(self, agg_data: Dict[str, Any], chosen_group: Dict[str, Any], draw_callback: Any) -> None:
         """
@@ -1088,7 +1083,7 @@ class RandomAggregateGenerator:
             logging.error(f"保存配置失败: {str(e)}", exc_info=True)
             return False
 
-    def load_config(self, filename: str) -> dict:
+    def load_config(self, filename: str) -> Optional[dict]:
         """
         从 JSON 加载组配置，返回配置字典
         
@@ -1096,10 +1091,23 @@ class RandomAggregateGenerator:
             filename: 输入文件名
             
         Returns:
-            dict: 包含 groups、mode、porosity 的配置字典
+            Optional[dict]: 包含 groups、mode、porosity 的配置字典，失败时返回 None
         """
         import json
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        logging.info(f"配置已从 {filename} 加载")
-        return data
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or 'groups' not in data:
+                logging.error(f"配置文件格式错误: 缺少 'groups' 字段")
+                return None
+            logging.info(f"配置已从 {filename} 加载")
+            return data
+        except FileNotFoundError:
+            logging.error(f"配置文件不存在: {filename}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"配置文件 JSON 解析失败: {e}")
+            return None
+        except Exception as e:
+            logging.error(f"加载配置失败: {e}")
+            return None

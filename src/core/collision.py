@@ -19,6 +19,8 @@ class GPUDistanceCalculator:
         self.cuda_available = False
         self.torch = None
         self.device = None
+        self._cached_bounds = None  # 缓存的 existing bounds tensor
+        self._cached_bounds_key = None  # 缓存对应的原始数据 id
         
         try:
             import torch
@@ -59,7 +61,14 @@ class GPUDistanceCalculator:
         
         try:
             new_bounds_tensor = self.torch.tensor(new_shape_bounds, device=self.device, dtype=self.torch.float32)
-            existing_bounds_tensor = self.torch.tensor(existing_bounds_list, device=self.device, dtype=self.torch.float32)
+            # 使用缓存避免重复创建 existing bounds tensor
+            bounds_key = id(existing_bounds_list)
+            if self._cached_bounds_key == bounds_key and self._cached_bounds is not None:
+                existing_bounds_tensor = self._cached_bounds
+            else:
+                existing_bounds_tensor = self.torch.tensor(existing_bounds_list, device=self.device, dtype=self.torch.float32)
+                self._cached_bounds = existing_bounds_tensor
+                self._cached_bounds_key = bounds_key
             
             expanded_min_x = new_bounds_tensor[0] - min_distance
             expanded_min_y = new_bounds_tensor[1] - min_distance

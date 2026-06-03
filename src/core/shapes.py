@@ -5,19 +5,7 @@ import math
 from typing import List, Tuple
 import numpy as np
 from ..utils import clip
-
-def calculate_distance(point1: Tuple[float, float], point2: Tuple[float, float]) -> float:
-    """
-    计算两点之间的距离
-    
-    Args:
-        point1: 第一个点 (x, y)
-        point2: 第二个点 (x, y)
-        
-    Returns:
-        float: 两点之间的距离
-    """
-    return math.hypot(point2[0] - point1[0], point2[1] - point1[1])
+from ..utils.helpers import calculate_distance
 
 def optimize_polygon_sides(points: List[Tuple[float, float]], min_edge_length: float) -> List[Tuple[float, float]]:
     """

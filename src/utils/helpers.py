@@ -19,12 +19,19 @@ def clip(value: float, lower: float, upper: float) -> float:
     return lower if value < lower else upper if value > upper else value
 
 
+def _get_xy(point) -> Tuple[float, float]:
+    """从点对象或元组中提取 x, y 坐标"""
+    if isinstance(point, (tuple, list)):
+        return point[0], point[1]
+    return point.x, point.y
+
+
 def calculate_polygon_area(points: List[Any]) -> float:
     """
     计算多边形面积 (使用鞋带公式)
     
     Args:
-        points: 多边形的点列表，每个点需有x和y属性
+        points: 多边形的点列表，每个点可以是 (x, y) 元组或有 x, y 属性的对象
         
     Returns:
         float: 多边形面积
@@ -35,8 +42,8 @@ def calculate_polygon_area(points: List[Any]) -> float:
     
     area = 0.0
     for i in range(n - 1):
-        x1, y1 = points[i].x, points[i].y
-        x2, y2 = points[i + 1].x, points[i + 1].y
+        x1, y1 = _get_xy(points[i])
+        x2, y2 = _get_xy(points[i + 1])
         area += (x1 * y2 - x2 * y1)
     
     return abs(area) / 2.0
@@ -74,7 +81,7 @@ def calculate_bounding_circle(points: List[Any]) -> Tuple[Optional[Tuple[float, 
     计算包围圆的中心和半径
     
     Args:
-        points: 点列表，每个点需有x和y属性
+        points: 点列表，每个点可以是 (x, y) 元组或有 x, y 属性的对象
         
     Returns:
         Tuple[Optional[Tuple[float, float]], float]: (中心点, 半径)
@@ -82,15 +89,16 @@ def calculate_bounding_circle(points: List[Any]) -> Tuple[Optional[Tuple[float, 
     if not points:
         return None, 0.0
     
-    xs = [p.x for p in points]
-    ys = [p.y for p in points]
+    xs = [_get_xy(p)[0] for p in points]
+    ys = [_get_xy(p)[1] for p in points]
     center_x = sum(xs) / len(xs)
     center_y = sum(ys) / len(ys)
     center_point = (center_x, center_y)
     
     max_radius = 0.0
     for point in points:
-        distance = math.hypot(point.x - center_x, point.y - center_y)
+        px, py = _get_xy(point)
+        distance = math.hypot(px - center_x, py - center_y)
         if distance > max_radius:
             max_radius = distance
     
@@ -121,7 +129,7 @@ def is_near_boundary(center: Tuple[float, float], radius: float,
     bottom_dist = center[1] - min_y
     top_dist = max_y - center[1]
     
-    threshold = radius
+    threshold = radius + min_distance
     return (left_dist < threshold or
             right_dist < threshold or
             bottom_dist < threshold or
@@ -155,7 +163,7 @@ def move_toward_boundary(center: Tuple[float, float],
     
     closest_boundary = min(distances, key=distances.get)
     
-    adjusted_min_distance = 0.1
+    adjusted_min_distance = max(min_distance, 0.1)
     
     if closest_boundary == 'left':
         return (min_x + adjusted_min_distance, center[1])
@@ -177,7 +185,7 @@ def adjust_points_to_boundary(points: List[Any],
     调整点集到边界内，确保ITZ层能尽可能贴近边界
     
     Args:
-        points: 点列表，每个点需有x和y属性
+        points: 点列表，每个点可以是 (x, y) 元组或有 x, y 属性的对象
         min_distance: 与边界的最小距离
         boundary_min: 区域左下角坐标 (min_x, min_y)
         boundary_max: 区域右上角坐标 (max_x, max_y)
@@ -189,10 +197,10 @@ def adjust_points_to_boundary(points: List[Any],
     max_x, max_y = boundary_max
     adjusted_points = []
     
-    adjusted_min_distance = 0.1
+    adjusted_min_distance = max(min_distance, 0.1)
     
     for point in points:
-        x, y = point.x, point.y
+        x, y = _get_xy(point)
         
         x = clip(x, min_x + adjusted_min_distance, max_x - adjusted_min_distance)
         y = clip(y, min_y + adjusted_min_distance, max_y - adjusted_min_distance)

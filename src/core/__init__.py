@@ -7,6 +7,7 @@ from .collision import check_collision_hierarchical, GPUDistanceCalculator
 from .group_manager import GroupManager
 from .quadtree import Quadtree
 from .kd_tree import KDTree
+from .spatial_index import SpatialIndex
 
 __all__ = [
     'CADConnection',
@@ -18,5 +19,6 @@ __all__ = [
     'GPUDistanceCalculator',
     'GroupManager',
     'Quadtree',
-    'KDTree'
+    'KDTree',
+    'SpatialIndex'
 ]

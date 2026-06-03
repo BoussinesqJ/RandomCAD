@@ -50,12 +50,14 @@ def run_benchmark(use_gpu: bool, num_runs: int = 3) -> dict:
                         'type': 'polygon',
                         'enabled': True,
                         'weight': 1.0,
-                        'min_radius': 2.0,
-                        'max_radius': 5.0,
-                        'sides_min': 5,
-                        'sides_max': 8,
-                        'elongation_min': 1.0,
-                        'elongation_max': 1.5
+                        'min_size': 2.0,
+                        'max_size': 5.0,
+                        'min_sides': 5,
+                        'max_sides': 8,
+                        'irregularity': 0.3,
+                        'spikiness': 0.2,
+                        'optimize_sides': True,
+                        'min_edge_length': None
                     }
                 ]
             },
@@ -72,10 +74,7 @@ def run_benchmark(use_gpu: bool, num_runs: int = 3) -> dict:
                         'weight': 1.0,
                         'min_radius': 1.5,
                         'max_radius': 4.0,
-                        'sides_min': 5,
-                        'sides_max': 8,
-                        'elongation_min': 1.0,
-                        'elongation_max': 1.5
+                        'segments': 36
                     }
                 ]
             }

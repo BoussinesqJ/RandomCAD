@@ -3,7 +3,16 @@
 import logging
 import threading
 import time
-import winreg
+import sys
+
+# winreg 仅在 Windows 平台可用
+if sys.platform == 'win32':
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+else:
+    winreg = None
 from typing import Optional, Any, Callable, List
 from enum import Enum
 
@@ -649,9 +658,48 @@ class CADConnection:
             logging.debug(f"设置对象图层失败: {e}")
             return False
 
+    def _draw_polyline(self, points: list[float], color: int, layer_name: str = None, element_type: str = "元素") -> Optional[Any]:
+        """
+        在CAD中绘制多段线（AutoCAD或中望CAD）- 内部通用方法
+        
+        Args:
+            points: 点列表 [x1, y1, z1, x2, y2, z2, ...]
+            color: 颜色索引
+            layer_name: 目标图层名称
+            element_type: 元素类型描述（用于日志）
+            
+        Returns:
+            Optional[Any]: 绘制的多段线对象，失败时返回None
+        """
+        if not self.is_connected or not self._model_space:
+            logging.error(f"CAD未连接，无法绘制{element_type}")
+            return None
+        
+        try:
+            if self._cad_type == CADType.AUTOCAD:
+                polyline = self._model_space.AddPolyline(aDouble(points))
+                polyline.color = color
+                if layer_name:
+                    self.set_object_layer(polyline, layer_name)
+                return polyline
+            elif self._cad_type == CADType.ZWCAD:
+                import comtypes
+                points_array = comtypes.automation.VARIANT(list(points))
+                polyline = self._model_space.AddPolyline(points_array)
+                polyline.color = color
+                if layer_name:
+                    self.set_object_layer(polyline, layer_name)
+                return polyline
+            else:
+                logging.error(f"未知的CAD类型: {self._cad_type}")
+                return None
+        except Exception as e:
+            logging.error(f"绘制{element_type}失败: {e}")
+            return None
+
     def draw_boundary(self, points: list[float], color: int, layer_name: str = None) -> Optional[Any]:
         """
-        在CAD中绘制边界（AutoCAD或中望CAD）
+        在CAD中绘制边界
         
         Args:
             points: 边界点列表 [x1, y1, z1, x2, y2, z2, ...]
@@ -661,35 +709,11 @@ class CADConnection:
         Returns:
             Optional[Any]: 绘制的多段线对象，失败时返回None
         """
-        if not self.is_connected or not self._model_space:
-            logging.error("CAD未连接，无法绘制边界")
-            return None
-        
-        try:
-            if self._cad_type == CADType.AUTOCAD:
-                polyline = self._model_space.AddPolyline(aDouble(points))
-                polyline.color = color
-                if layer_name:
-                    self.set_object_layer(polyline, layer_name)
-                return polyline
-            elif self._cad_type == CADType.ZWCAD:
-                import comtypes
-                points_array = comtypes.automation.VARIANT(list(points))
-                polyline = self._model_space.AddPolyline(points_array)
-                polyline.color = color
-                if layer_name:
-                    self.set_object_layer(polyline, layer_name)
-                return polyline
-            else:
-                logging.error(f"未知的CAD类型: {self._cad_type}")
-                return None
-        except Exception as e:
-            logging.error(f"绘制边界失败: {e}")
-            return None
+        return self._draw_polyline(points, color, layer_name, "边界")
     
     def draw_aggregate(self, points: list[float], color: int, layer_name: str = None) -> Optional[Any]:
         """
-        在CAD中绘制骨料（AutoCAD或中望CAD）
+        在CAD中绘制骨料
         
         Args:
             points: 骨料点列表 [x1, y1, z1, x2, y2, z2, ...]
@@ -699,32 +723,7 @@ class CADConnection:
         Returns:
             Optional[Any]: 绘制的多段线对象，失败时返回None
         """
-        if not self.is_connected or not self._model_space:
-            logging.error("CAD未连接，无法绘制骨料")
-            return None
-        
-        try:
-            if self._cad_type == CADType.AUTOCAD:
-                polyline = self._model_space.AddPolyline(aDouble(points))
-                polyline.color = color
-                if layer_name:
-                    self.set_object_layer(polyline, layer_name)
-                return polyline
-            elif self._cad_type == CADType.ZWCAD:
-                import comtypes
-                points_array = comtypes.automation.VARIANT(list(points))
-                polyline = self._model_space.AddPolyline(points_array)
-                polyline.color = color
-                if layer_name:
-                    self.set_object_layer(polyline, layer_name)
-                return polyline
-            else:
-                logging.error(f"未知的CAD类型: {self._cad_type}")
-                return None
-        except Exception as e:
-            logging.error(f"绘制骨料失败: {e}")
-            return None
-    
+        return self._draw_polyline(points, color, layer_name, "骨料")
     def delete_object(self, obj: Any) -> bool:
         """
         删除CAD对象（AutoCAD或中望CAD）
@@ -771,8 +770,17 @@ class CADConnection:
             logging.error(f"重绘失败: {e}")
             return False
     
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口，确保资源释放"""
+        self.disconnect()
+        return False
+    
     def __del__(self):
         """
-        析构函数，清理资源
+        析构函数，作为安全兜底清理资源（优先使用上下文管理器）
         """
         self.disconnect()

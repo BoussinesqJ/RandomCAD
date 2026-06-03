@@ -155,7 +155,6 @@ class QuadtreeNode:
             for child in self.children:
                 if child:
                     child.clear()
-                    child = None
             self.children = [None, None, None, None]
             self.is_divided = False
 

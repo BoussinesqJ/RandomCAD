@@ -210,10 +210,13 @@ __marimo__/
 .claude/
 .trae/
 .workbuddy/
+.codegraph/
+.reasonix/
 
 # Local logs and output directories
 logs/
 output/
+memory/
 SOUL.md
 USER.md
 

@@ -656,7 +656,7 @@ class MainWindow(QMainWindow):
                     self.progress_label.setText(f"已生成 {count} 个骨料 | 面积: {area:.1f} (目标 {target_area:.1f}, {progress_pct}%)")
             self._update_info_display()
         elif msg_type == "info":
-            self.status_label.setText(msg_type)
+            self.status_label.setText(msg)
     
     @Slot(tuple)
     def _on_draw_command(self, command: tuple):
@@ -873,16 +873,30 @@ class MainWindow(QMainWindow):
             self.generator.cad_connection.create_layer("RandomCAD-Aggregates", 7)
             self.generator.cad_connection.create_layer("RandomCAD-ITZ", 4)
             
-            # 绘制边界
-            min_x, min_y = self.x_min_spin.value(), self.y_min_spin.value()
-            max_x, max_y = self.x_max_spin.value(), self.y_max_spin.value()
-            boundary_points = [
-                float(min_x), float(min_y), 0.0,
-                float(max_x), float(min_y), 0.0,
-                float(max_x), float(max_y), 0.0,
-                float(min_x), float(max_y), 0.0,
-                float(min_x), float(min_y), 0.0
-            ]
+            # 绘制边界（支持矩形和圆形试件）
+            from src.configs.config import SpecimenType
+            from src.core.shapes import generate_circle
+            
+            if hasattr(self.generator, 'specimen_type') and self.generator.specimen_type == SpecimenType.CIRCLE:
+                # 圆形试件：生成圆形边界点
+                center = self.generator.circle_center
+                radius = self.generator.circle_diameter / 2.0
+                circle_points = generate_circle(center, radius, 72)
+                boundary_points = []
+                for p in circle_points:
+                    boundary_points.extend([float(p[0]), float(p[1]), 0.0])
+                boundary_points.extend([float(circle_points[0][0]), float(circle_points[0][1]), 0.0])
+            else:
+                # 矩形试件
+                min_x, min_y = self.x_min_spin.value(), self.y_min_spin.value()
+                max_x, max_y = self.x_max_spin.value(), self.y_max_spin.value()
+                boundary_points = [
+                    float(min_x), float(min_y), 0.0,
+                    float(max_x), float(min_y), 0.0,
+                    float(max_x), float(max_y), 0.0,
+                    float(min_x), float(max_y), 0.0,
+                    float(min_x), float(min_y), 0.0
+                ]
             
             # 清除旧边界，绘制新边界
             if self.generator.region_boundary:

@@ -74,6 +74,28 @@ class ShapeConfigWidget(QWidget):
         self.poly_max_sides.valueChanged.connect(self._emit_changed)
         polygon_layout.addRow("最大边数:", self.poly_max_sides)
         
+        self.poly_irregularity = QDoubleSpinBox()
+        self.poly_irregularity.setRange(0.0, 1.0)
+        self.poly_irregularity.setValue(0.3)
+        self.poly_irregularity.setSingleStep(0.05)
+        self.poly_irregularity.setToolTip("不规则度: 0=规则多边形, 1=高度不规则")
+        self.poly_irregularity.valueChanged.connect(self._emit_changed)
+        polygon_layout.addRow("不规则度:", self.poly_irregularity)
+        
+        self.poly_spikiness = QDoubleSpinBox()
+        self.poly_spikiness.setRange(0.0, 1.0)
+        self.poly_spikiness.setValue(0.2)
+        self.poly_spikiness.setSingleStep(0.05)
+        self.poly_spikiness.setToolTip("尖锐度: 0=平滑, 1=尖锐")
+        self.poly_spikiness.valueChanged.connect(self._emit_changed)
+        polygon_layout.addRow("尖锐度:", self.poly_spikiness)
+        
+        self.poly_optimize_sides = QCheckBox("优化短边")
+        self.poly_optimize_sides.setChecked(True)
+        self.poly_optimize_sides.setToolTip("自动合并过短的边，避免退化多边形")
+        self.poly_optimize_sides.stateChanged.connect(self._emit_changed)
+        polygon_layout.addRow(self.poly_optimize_sides)
+        
         self.polygon_group.setLayout(polygon_layout)
         layout.addRow(self.polygon_group)
         
@@ -190,9 +212,9 @@ class ShapeConfigWidget(QWidget):
                 'max_size': self.poly_max_size.value(),
                 'min_sides': self.poly_min_sides.value(),
                 'max_sides': self.poly_max_sides.value(),
-                'irregularity': 0.3,
-                'spikiness': 0.2,
-                'optimize_sides': True
+                'irregularity': self.poly_irregularity.value(),
+                'spikiness': self.poly_spikiness.value(),
+                'optimize_sides': self.poly_optimize_sides.isChecked()
             })
         elif self.shape_type == "circle":
             config.update({
@@ -228,6 +250,9 @@ class ShapeConfigWidget(QWidget):
             self.poly_max_size.setValue(config.get('max_size', 8.0))
             self.poly_min_sides.setValue(config.get('min_sides', 3))
             self.poly_max_sides.setValue(config.get('max_sides', 7))
+            self.poly_irregularity.setValue(config.get('irregularity', 0.3))
+            self.poly_spikiness.setValue(config.get('spikiness', 0.2))
+            self.poly_optimize_sides.setChecked(config.get('optimize_sides', True))
         elif self.shape_type == "circle":
             self.circle_min_radius.setValue(config.get('min_radius', 2.0) if 'min_radius' in config else config.get('min_size', 2.0))
             self.circle_max_radius.setValue(config.get('max_radius', 5.0) if 'max_radius' in config else config.get('max_size', 5.0))

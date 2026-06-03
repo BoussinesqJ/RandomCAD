@@ -42,6 +42,12 @@ graph TD
 - [x] **GPU 硬件加速**：基于 PyTorch CUDA (CUDA 12.1) 重构碰撞检测的距离计算矩阵，利用 GPU 的并行吞吐量加速高密度骨料计算。
 - [x] **UI 状态智能联动**：在主界面新增 GPU 开关与状态栏监控，支持在运行期间动态锁定以避免冲突。
 - [x] **性能基准工具**：编写 `benchmark_gpu.py` 基准测试脚本，量化 CPU 模式与 GPU 加速模式在不同规模下的性能交叉点 (Crossover Point)。
+- [x] **工程化质量提升**（v1.1）：
+  - 线程安全：生成器共享数据加锁保护，`CADConnection` 支持上下文管理器。
+  - GPU tensor 缓存：避免碰撞检测中重复创建 existing bounds tensor。
+  - `SpatialIndex` Protocol：四叉树和 KD 树实现统一接口协议。
+  - 测试覆盖：99 个测试全部通过（helpers 42 + quadtree 10 + kd_tree 7 + shapes 17 + collision 8 + cad_connection 5 + integration 10）。
+  - UI 增强：多边形不规则度/尖锐度/优化短边参数暴露为可配置控件。
 
 ---
 
@@ -62,6 +68,10 @@ graph TD
   - [ ] 导出为 ANSYS (APDL)、ABAQUS (INP) 和 COMSOL 可直接导入的实体几何或有限元网格格式。
 - [ ] **采矿充填边界自适应接入**：
   - [ ] 支持直接读取和解析巷道、采坑、采场等复杂不规则的三维 CAD 边界，自动识别充填腔体作为生成域。
+- [ ] **标准格式导出**：
+  - [ ] 支持 DXF 格式导出（二维/三维），适配标准 CAD 工作流。
+- [ ] **级配曲线校验**：
+  - [ ] 支持 Fuller（富勒）级配曲线内置算法，校验生成分布是否符合目标级配。
 
 ---
 
